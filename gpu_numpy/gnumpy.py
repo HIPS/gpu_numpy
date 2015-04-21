@@ -38,17 +38,6 @@ elif useGpu == 'no':
 _cmType = _cudamat.CUDAMatrix
 if hasattr(_cudamat, 'ct'): _ctInt = _cudamat.ct.c_int
 
-def board_id_to_use():
-    try:
-        import gpu_lock
-
-        return gpu_lock.obtain_lock_id()
-    except:
-        print 'gnumpy: failed to use gpu_lock. Using board #0 without knowing whether it is in use or not.'
-        return 0
-
-class GnumpyGpuUnavailableException(Exception): pass
-
 _boardId = None
 
 def _init_gpu():
@@ -56,10 +45,7 @@ def _init_gpu():
     if '__gpu_inited' in globals(): return
     global _boardId
     if useGpu == 'yes':
-        _boardId = ( board_id_to_use() if callable(board_id_to_use) else board_id_to_use)
-        if _boardId == -1: raise GnumpyGpuUnavailableException(
-            'No gpu board is available. gnumpy will not function. Consider telling it to run on the CPU by setting environment variable GNUMPY_USE_GPU to "no".')
-        _cudamat.cuda_set_device(_boardId)
+        _cudamat.cuda_set_device(0)
         _cudamat.cublas_init()
     _cudamat.CUDAMatrix.init_random(0)
     globals()['__gpu_inited'] = None
@@ -144,7 +130,6 @@ def cudamatHas(name):
 # ------------------------------------------------------------------------------- memory management
 
 max_memory_usage = numpy.inf  # public
-
 _cmsForReuse = collections.defaultdict(list)  # dict from size to list of reusable (abandoned) cms
 __memoryInUse = 0
 _memoryUsers = collections.defaultdict(lambda: (0, 0))
@@ -376,17 +361,13 @@ def where(a, *vararg):
     assert len(vararg) == 2, 'wrong number of arguments to gnumpy.where()'
     return garray(numpy.where(as_numpy_array(a), as_numpy_array(vararg[0]), as_numpy_array(vararg[1])))
 
-
 def nonzero(a):
     """ See notes for where(). """
     return where(a)
 
-
 newaxis = None
 
-
 def eye(n): return diagflat(ones(n))
-
 
 def diagflat(a, k=0):
     if isinstance(a, garray):
@@ -394,20 +375,19 @@ def diagflat(a, k=0):
     else:
         return numpy.diagflat(a, k)
 
-
 def tensordot(a, b, axes=2):
-    if type(axes) in _numberTypes: return dot(a.reshape_2d(a.ndim - axes), b.reshape_2d(axes)).reshape(
-        a.shape[:a.ndim - axes] + b.shape[axes:])
+    if type(axes) in _numberTypes:
+        return dot(a.reshape_2d(a.ndim - axes), b.reshape_2d(axes)).reshape(a.shape[:a.ndim - axes] + b.shape[axes:])
     assert len(axes) == 2 and len(axes[0]) == len(axes[1]), 'the axes parameter to gnumpy.tensordot looks bad'
     aRemove, bRemove = (tuple(axes[0]), tuple(axes[1]))
     return tensordot(a.transpose(filter(lambda x: x not in aRemove, tuple(xrange(a.ndim))) + aRemove),
                      b.transpose(bRemove + filter(lambda x: x not in bRemove, tuple(xrange(b.ndim)))),
                      len(aRemove))
 
-
 # ------------------------------------------------------------------------------- reductors
 
 def _reductor__base(x, axis, gpuOp, npOp):
+    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
     if type(x) == numpy.ndarray: return npOp(x, axis)
     if not isinstance(x, garray): x = garray(x)
     if gpuOp == None:
@@ -415,46 +395,15 @@ def _reductor__base(x, axis, gpuOp, npOp):
     else:
         return gpuOp(x, axis)
 
-
-def all(x, axis=None):
-    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    return _reductor__base(x, axis, garray.all, numpy.all)
-
-
-def any(x, axis=None):
-    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    return _reductor__base(x, axis, garray.any, numpy.any)
-
-
-def sum(x, axis=None):
-    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    return _reductor__base(x, axis, garray.sum, numpy.sum)
-
-
-def mean(x, axis=None):
-    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    return _reductor__base(x, axis, garray.mean, numpy.mean)
-
-
-def max(x, axis=None):
-    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    return _reductor__base(x, axis, garray.max, numpy.max)
-
-
-def min(x, axis=None):
-    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    return _reductor__base(x, axis, garray.min, numpy.min)
-
-
-def prod(x, axis=None):
-    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    return _reductor__base(x, axis, None, numpy.prod)
-
-
-def std(x, axis=None):
-    """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    return _reductor__base(x, axis, None, numpy.std)
-
+def all(x, axis=None):  return _reductor__base(x, axis, garray.all, numpy.all)
+def any(x, axis=None):  return _reductor__base(x, axis, garray.any, numpy.any)
+def sum(x, axis=None):  return _reductor__base(x, axis, garray.sum, numpy.sum)
+def mean(x, axis=None): return _reductor__base(x, axis, garray.mean, numpy.mean)
+def max(x, axis=None):  return _reductor__base(x, axis, garray.max, numpy.max)
+def min(x, axis=None):  return _reductor__base(x, axis, garray.min, numpy.min)
+def prod(x, axis=None): return _reductor__base(x, axis, None, numpy.prod)
+def std(x, axis=None):  return _reductor__base(x, axis, None, numpy.std)
+def var(x, axis=None):  return _reductor__base(x, axis, None, numpy.var)
 
 # ------------------------------------------------------------------------------- elementwise operations
 
@@ -472,93 +421,28 @@ def _elementwise__base(x, opGpu, opNp):
             return opNp(x)
     raise TypeError('value %s of unexpected type %s provided to %s()' % (x, type(x), str(opNp).split("'")[1]))
 
-
-def abs(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.abs, numpy.abs)
-
-
-def exp(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.exp, numpy.exp)
-
-
-def isinf(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.isinf, numpy.isinf)
-
-
-def isnan(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.isnan, numpy.isnan)
-
-
-def log(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.log, numpy.log)
-
-
-def log_1_plus_exp(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.log_1_plus_exp, lambda x: log(1. + exp(x)))
-
-
-def logistic(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.logistic, lambda x: 1. / (1. + exp(-x)))
-
-
-def negative(x):
-    """
-    Like -x, except that a zero dimensional numpy array input results in a numpy array return value.
-    This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats).
-    """
-    return _elementwise__base(x, operator.neg, operator.neg)
-
-
-def sign(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.sign, numpy.sign)
-
-
-def sqrt(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.sqrt, numpy.sqrt)
-
-
-def tanh(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, garray.tanh, numpy.tanh)
-
-
-def log10(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, None, numpy.log10)
-
-
-def log2(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, None, numpy.log2)
-
-
-def cos(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, None, numpy.cos)
-
-
-def sin(x):
-    """ This works on garrays, numpy arrays, and numbers, preserving type (though all numbers become floats). """
-    return _elementwise__base(x, None, numpy.sin)
-
+def abs(x):    return _elementwise__base(x, garray.abs, numpy.abs)
+def exp(x):    return _elementwise__base(x, garray.exp, numpy.exp)
+def isinf(x):  return _elementwise__base(x, garray.isinf, numpy.isinf)
+def isnan(x):  return _elementwise__base(x, garray.isnan, numpy.isnan)
+def log(x):    return _elementwise__base(x, garray.log, numpy.log)
+def logistic(x): return _elementwise__base(x, garray.logistic, lambda x: 1. / (1. + exp(-x)))
+def negative(x): return _elementwise__base(x, operator.neg, operator.neg)
+def sign(x):   return _elementwise__base(x, garray.sign, numpy.sign)
+def sqrt(x):   return _elementwise__base(x, garray.sqrt, numpy.sqrt)
+def tanh(x):   return _elementwise__base(x, garray.tanh, numpy.tanh)
+def log10(x):  return _elementwise__base(x, None, numpy.log10) # TODO: have a more generic way to fall back to CPU ops
+def log2(x):   return _elementwise__base(x, None, numpy.log2)
+def cos(x):    return _elementwise__base(x, None, numpy.cos)
+def sin(x):    return _elementwise__base(x, None, numpy.sin)
+def log1p(x):  return _elementwise__base(x, garray.log_1_plus_exp, np.log1p)
 
 class garray(object):
     """
     A class designed to interface like numpy arrays, and internally do its work on a GPU.
     Documentation can be found at http://www.cs.toronto.edu/~tijmen/gnumpy.html
     """
-
     # ------------------------------------------------------------------------------- internal aux
-
     def _set_shape_info(self, shape):  # setting these as attributes rather than properties saves exec time
         self.shape = shape
         self.size = _prodT(shape)
@@ -724,10 +608,9 @@ class garray(object):
 
     def __init__(self, data, copy=True, ndmin=0):
         """ the parameters mean the same as in numpy.array() """
-        if type(data) != _cmType: assert copy in (True, False) and type(ndmin) in _numberTypes, 'garray() parameters copy=%s, ndmin=%s are not of the right type' % (
-        str(copy), str(ndmin))
-        if type(
-                data) == _cmType:  # internal use only. the 3 arguments are, unlike their names suggest, the ._base, .shape, ._is_alias_of
+        if type(data) != _cmType:
+            assert copy in (True, False) and type(ndmin) in _numberTypes, 'garray() parameters copy=%s, ndmin=%s are not of the right type' % (str(copy), str(ndmin))
+        if type(data) == _cmType:  # internal use only. the 3 arguments are, unlike their names suggest, the ._base, .shape, ._is_alias_of
             self._base = data
             self._set_shape_info(copy)
             self._is_alias_of = ndmin
@@ -893,111 +776,40 @@ class garray(object):
     def diag(self):
         return self.diagonal()
 
-
     # ------------------------------------------------------------------------------- elementwise type checking
 
-    def all_real(self):
-        """ returns True iff all array elements are regular floats, as opposed to inf's, -inf's, and NaN's.  """
-        return (self * 0).sum() == 0
-
-    def isinf(self):
-        """ elementwise, checking for inf or -inf. """
-        return 1 - self.isreal() - self.isnan()
-
-    def isreal(self):
-        """ elementwise, checking for real numbers. See also .all_real() """
-        return (self < numpy.inf) * (self > -numpy.inf)
-
-    def isnan(self):
-        """ elementwise, checking for NaN's. """
-        return (self > 0) + (self < 1) < .5
-
-    def isnumber(self):
-        """ elementwise, checking for anything other than NaN's """
-        return (self > 0) + (self < 1) > .5
-
+    def all_real(self): return (self * 0).sum() == 0
+    def isinf(self):    return 1 - self.isreal() - self.isnan()
+    def isreal(self):   return (self < numpy.inf) * (self > -numpy.inf)
+    def isnan(self):    return (self > 0) + (self < 1) < .5
+    def isnumber(self): return (self > 0) + (self < 1) > .5
 
     # ------------------------------------------------------------------------------- external misc numerical
 
-    def __abs__(self):
-        return self._elementwise_unary(_cudamat.abs)
-
-    def abs(self):
-        return __builtin__.abs(self)
-
-    def as_bool(self):
-        return self != 0
-
-    def exp(self):
-        return self._elementwise_unary(_cudamat.exp)
-
-    def log(self):
-        return self._elementwise_unary(_cudamat.log)
-
-    def log_1_plus_exp(self):
-        return self._elementwise_unary(_cudamat.log_1_plus_exp)
-
-    def logistic(self):
-        return self._elementwise_unary(_cudamat.sigmoid)
-
-    sigmoid = logistic
-
-    def sign(self):
-        return self._elementwise_unary(_cmType.sign)
-
-    def sqrt(self):
-        return self._elementwise_unary(_cudamat.sqrt)
-
-    def tanh(self):
-        return self._elementwise_unary(_cudamat.tanh)
-
-
-    def sum(self, axis=None):
-        return self._reduction__base('sum', axis)
-
-    def max(self, axis=None):
-        return self._reduction__base('max', axis)
-
-    def mean(self, axis=None):
-        return self.sum(axis) / ( self.size if axis == None else self.shape[axis])
-
-    def argmax(self, axis=None):
-        return numpy.argmax(self.asarray(), axis)
-
-    def argmin(self, axis=None):
-        return numpy.argmin(self.asarray(), axis)
-
-    def min(self, axis=None):
-        return -(-self).max(axis)
-
-    def all(self, axis=None):
-        return ( True if self.size == 0 else (self.as_bool()).min())
-
-    def any(self, axis=None):
-        return ( False if self.size == 0 else (self.as_bool()).max())
-
-    def all2(self, axis=None):
-        return 1 - (1 - self).any2(axis)  # optimized for when I'm sure that the content is boolean
-
-    def any2(self, axis=None):
-        return self.sum(axis) > 0  # optimized for when I'm sure that the content is boolean
-
-    def rand(self, distribution='uniform'):
-        """
-        returns a new garray, of the same shape as self, filled with random numbers.
-        <distribution> can be either 'uniform' or 'normal'.
-        """
-        return _rand__base(self.shape, distribution, False)
-
-    def euclid_norm(self):
-        return self._base.euclid_norm()
-
+    def __abs__(self):  return self._elementwise_unary(_cudamat.abs)
+    def abs(self):      return __builtin__.abs(self)
+    def as_bool(self):  return self != 0
+    def exp(self):      return self._elementwise_unary(_cudamat.exp)
+    def log(self):      return self._elementwise_unary(_cudamat.log)
+    def log_1_plus_exp(self):        return self._elementwise_unary(_cudamat.log_1_plus_exp)
+    def logistic(self): return self._elementwise_unary(_cudamat.sigmoid)
+    def sign(self):     return self._elementwise_unary(_cmType.sign)
+    def sqrt(self):     return self._elementwise_unary(_cudamat.sqrt)
+    def tanh(self):     return self._elementwise_unary(_cudamat.tanh)
+    def sum(self, axis=None):    return self._reduction__base('sum', axis)
+    def max(self, axis=None):    return self._reduction__base('max', axis)
+    def mean(self, axis=None):   return self.sum(axis) / ( self.size if axis == None else self.shape[axis])
+    def argmax(self, axis=None): return numpy.argmax(self.asarray(), axis)
+    def argmin(self, axis=None): return numpy.argmin(self.asarray(), axis)
+    def min(self, axis=None):    return -(-self).max(axis)
+    def all(self, axis=None):    return ( True if self.size == 0 else (self.as_bool()).min())
+    def any(self, axis=None):    return ( False if self.size == 0 else (self.as_bool()).max())
+    def all2(self, axis=None):   return 1 - (1 - self).any2(axis)  # optimized for when I'm sure that the content is boolean
+    def any2(self, axis=None):   return self.sum(axis) > 0  # optimized for when I'm sure that the content is boolean
+    def euclid_norm(self):       return self._base.euclid_norm()
+    def __nonzero__(self):       return self.size == 1 and self.item() != 0
     where = where
     nonzero = nonzero
-
-    def __nonzero__(self):
-        return self.size == 1 and self.item() != 0
-
 
     # ------------------------------------------------------------------------------- operator overloads, numerical
 
@@ -1017,9 +829,6 @@ class garray(object):
         if modulo != None: raise NotImplementedError('power with modulo')
         if type(other) in _numberTypes and other == 2: return self * self  # faster
         return self._broadcastable_op(as_garray_or_scalar(other), 'pow')
-
-
-    # the following would be a lot simpler if I wouldn't have to deal with nans
 
     def __lt__(self, other):
         return self._broadcastable_op(as_garray_or_scalar(other), 'less than')
