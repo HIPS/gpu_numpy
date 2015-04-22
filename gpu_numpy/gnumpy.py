@@ -437,6 +437,10 @@ def cos(x):    return _elementwise__base(x, None, numpy.cos)
 def sin(x):    return _elementwise__base(x, None, numpy.sin)
 def log1p(x):  return _elementwise__base(x, garray.log_1_plus_exp, np.log1p)
 
+class gpu_float32(object):
+    def __init__(self):
+        raise NotImplementedError
+
 class garray(object):
     """
     A class designed to interface like numpy arrays, and internally do its work on a GPU.
@@ -558,24 +562,11 @@ class garray(object):
                 return tile(-inf, retShape)
             else:
                 assert False
-        if operatorName == 'max' and axis == 0 and cudamatHas('maxAxis0'):  # my own fast implementation
-            ret = empty(self.shape[1:])
-            _ctInt = _cudamat.ct.c_int
-            nThreadsPerBlock = 32
-            gridX, gridY = ((ret.size + nThreadsPerBlock - 1) // nThreadsPerBlock), 1
-            while gridX > 65535: gridY *= 2; gridX = (gridX + 1) // 2;
-            _cudamat._cudamat.maxAxis0.restype = ctypes.c_int
-            assert 0 == _cudamat._cudamat.maxAxis0(_ctInt(gridX), _ctInt(gridY), _ctInt(nThreadsPerBlock),
-                                                   self._base.p_mat, ret._base.p_mat, _ctInt(self.shape[0]),
-                                                   _ctInt(ret.size))
-            return ret
         if axis == 0 and operatorName == 'max':  # max over rows is not yet supported in cudamat
             return self.reshape_2d(1).T.max(1).reshape(self.shape[1:])
         if axis == 0 and self.ndim == 1 and self.size > 5000 and operatorName == 'sum':  # optimization. apparently, cudamat is not maximally efficient.
             n = int(numpy.sqrt(self.size - 1))
-            return self[:n * n].reshape((n, n))._reduction__base(operatorName, 0)._reduction__base(operatorName,
-                                                                                                   0) + self[
-                                                                                                        n * n:]._reduction__base(
+            return self[:n * n].reshape((n, n))._reduction__base(operatorName, 0)._reduction__base(operatorName, 0) + self[n * n:]._reduction__base(
                 operatorName, 0)
         if operatorName == 'sum':
             chunkSize = 1024 * 256  # sum over longer dimensions fails in cudamat
@@ -1093,12 +1084,7 @@ class garray(object):
         self._set_shape_info(state[0])
 
     def __array__(self, *dtype):
-        _envInstruction = os.environ.get('GNUMPY_IMPLICIT_CONVERSION', 'refuse')
-        assert _envInstruction in ('allow', 'warn',
-                                   'refuse'), "environment variable GNUMPY_IMPLICIT_CONVERSION, if present, should be one of 'allow', 'warn', 'refuse'."
-        if _envInstruction == 'refuse': raise TypeError(
-            "garray objects cannot be quietly converted to numpy arrays, because the environment variable GNUMPY_IMPLICIT_CONVERSION is set to 'refuse', or is not set at all (the default is 'refuse'). Set that variable to 'allow' or 'warn' if you wish to allow quiet conversion. garray's can always be explicitly converted using the .as_numpy_array() method.")
-        if _envInstruction == 'warn': print "gnumpy: warning: a garray object is being quietly converted to a numpy array, and the environment variable GNUMPY_IMPLICIT_CONVERSION is set to 'warn'. garray objects can be explicitly converted using the .as_numpy_array() method."
+        print "gnumpy: warning: implicitly converting from garray to np.ndarray"
         return self.as_numpy_array().__array__(*dtype)
 
     def __repr__(self):
@@ -1120,5 +1106,11 @@ class garray(object):
                 self._is_alias_of).__name__ == 'garray', '_is_alias_of is of unexpected type, of which the str() is: "%s"' % str(
                 type(self._is_alias_of))
             # del self._base # this is only to make the refcount assert not fail
+
+    def __float__(self):
+        assert self.size == 1
+        return float(self._base.asarray()[0,0])
+
+    dtype = gpu_float32
 
 _castableTypes = _numberTypes | set([tuple, list, numpy.array, garray])
