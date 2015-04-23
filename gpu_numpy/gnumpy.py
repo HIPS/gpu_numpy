@@ -303,7 +303,7 @@ def dot(a1, a2):
         if a1 is a2:
             return sum(a1 ** 2)
         else:
-            return dot(a1.reshape(1, a1.size), a2.reshape(a2.size, 1)).item()
+            return dot(a1.reshape(1, a1.size), a2.reshape(a2.size, 1)).as_numpy_array()[0, 0]
     if a1.ndim == 2 and a2.ndim == 1: return dot(a1, a2.reshape(a2.size, 1)).ravel()  # treat a2 like a column vector
     if a1.ndim == 1 and a2.ndim == 2: return dot(a1._add_axes(2), a2)[0]  # treat a1 like a row vector
     if a1.shape[-1] != a2.shape[-2]: raise ValueError(
@@ -371,6 +371,8 @@ def diagflat(a, k=0):
         return numpy.diagflat(a, k)
 
 def tensordot(a, b, axes=2):
+    a = as_garray(a)
+    b = as_garray(b)
     if type(axes) in _numberTypes:
         return dot(a.reshape_2d(a.ndim - axes), b.reshape_2d(axes)).reshape(a.shape[:a.ndim - axes] + b.shape[axes:])
     assert len(axes) == 2 and len(axes[0]) == len(axes[1]), 'the axes parameter to gnumpy.tensordot looks bad'
@@ -403,7 +405,7 @@ def var(x, axis=None):  return _reductor__base(x, axis, None, numpy.var)
 # ------------------------------------------------------------------------------- elementwise operations
 
 def _elementwise__base(x, opGpu, opNp):
-    if type(x) in _numberTypes: return float(opNp(x))
+    if type(x) in _numberTypes: return numpy.float64(opNp(x))
     if isinstance(x, garray):
         if opGpu == None:
             return garray(opNp(x.as_numpy_array()))
@@ -684,7 +686,12 @@ class garray(object):
     def transpose(self, *axes):
         """ like numpy.transpose, except that this doesn't return an alias, but rather a new array. """
         # This is not really supported by cudamat, so it takes creativity. I handle a variety of cases differently.
-        if len(axes) == 1 and not type(axes[0]) in _numberTypes: axes = tuple(axes[0])
+        print axes
+        if len(axes) == 1:
+            if axes[0] is None:
+                axes = ()
+            elif not type(axes[0]) in _numberTypes:
+                axes = tuple(axes[0])
         if axes == _t0: axes = tuple(reversed(tuple(xrange(self.ndim))))
         if axes == tuple(xrange(self.ndim)): return self.copy()
         if tuple(sorted(axes)) != tuple(xrange(self.ndim)): raise ValueError(

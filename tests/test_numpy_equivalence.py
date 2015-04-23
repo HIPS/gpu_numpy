@@ -1,3 +1,4 @@
+import operator as op
 import numpy.random as npr
 from test_utils import combo_check, stat_check, unary_ufunc_check, binary_ufunc_check
 npr.seed(0)
@@ -45,30 +46,23 @@ def test_sqrt():    unary_ufunc_check('sqrt', lims=[1.0, 3.0])
 def test_square():  unary_ufunc_check('square')
 def test_tan():     unary_ufunc_check('tan', lims=[-1.1, 1.1])
 def test_tanh():    unary_ufunc_check('tanh')
-def test_real():    unary_ufunc_check('real')
-def test_real_ic(): unary_ufunc_check('real_if_close')
-def test_imag():    unary_ufunc_check('imag')
-def test_conj():    unary_ufunc_check('conj')
-def test_angle():   unary_ufunc_check('angle')
 
 # Binary ufunc tests
 
 def test_add(): binary_ufunc_check('add')
 def test_logaddexp(): binary_ufunc_check('logaddexp')
 def test_logaddexp2(): binary_ufunc_check('logaddexp2')
-def test_remainder(): binary_ufunc_check_no_same_args('remainder', lims_A=[-0.9, 0.9], lims_B=[0.7, 1.9])
-def test_mod(): binary_ufunc_check_no_same_args('mod',    lims_B=[0.8, 2.1])
-def test_mod_neg(): binary_ufunc_check_no_same_args('mod',    lims_B=[-0.3, -2.0])
+def test_remainder(): binary_ufunc_check('remainder', lims_A=[-0.9, 0.9], lims_B=[0.7, 1.9])
+def test_mod(): binary_ufunc_check('mod',    lims_B=[0.8, 2.1])
+def test_mod_neg(): binary_ufunc_check('mod',    lims_B=[-0.3, -2.0])
 
 def test_op_mul(): binary_ufunc_check(op.mul)
 def test_op_add(): binary_ufunc_check(op.add)
 def test_op_sub(): binary_ufunc_check(op.sub)
-def test_op_mod(): binary_ufunc_check_no_same_args(op.mod, lims_B=[0.3, 2.0])
-def test_op_mod_neg(): binary_ufunc_check_no_same_args(op.mod, lims_B=[-0.3, -2.0])
+def test_op_mod(): binary_ufunc_check(op.mod, lims_B=[0.3, 2.0])
+def test_op_mod_neg(): binary_ufunc_check(op.mod, lims_B=[-0.3, -2.0])
 def test_op_div(): binary_ufunc_check(op.div, lims_B=[0.5, 2.0])
 def test_op_pow(): binary_ufunc_check(op.pow, lims_A=[0.7, 2.0])
-
-
 
 # Misc tests
 
