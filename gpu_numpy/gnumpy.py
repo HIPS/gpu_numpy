@@ -426,10 +426,6 @@ def negative(x): return _elementwise__base(x, operator.neg, operator.neg)
 def sign(x):   return _elementwise__base(x, garray.sign, numpy.sign)
 def sqrt(x):   return _elementwise__base(x, garray.sqrt, numpy.sqrt)
 def tanh(x):   return _elementwise__base(x, garray.tanh, numpy.tanh)
-def log10(x):  return _elementwise__base(x, None, numpy.log10) # TODO: have a more generic way to fall back to CPU ops
-def log2(x):   return _elementwise__base(x, None, numpy.log2)
-def cos(x):    return _elementwise__base(x, None, numpy.cos)
-def sin(x):    return _elementwise__base(x, None, numpy.sin)
 def log1p(x):  return _elementwise__base(x, garray.log_1_plus_exp, np.log1p)
 
 class gpu_float32(object):
