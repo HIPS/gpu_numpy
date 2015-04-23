@@ -78,7 +78,6 @@ def _allTheSame(tup):
         if elt != tup[0]: return False
     return True
 
-
 # ------------------------------------------------------------------------------- gnumpy specific helpers
 
 def _all2_(t, pred): return reduce(operator.and_, map(pred, t), True)
@@ -122,10 +121,6 @@ def _read_simple_slice(sl, axisLen):
     return (sFrom, sTo, sTo - sFrom)
 
 def _extend_shape(shape, nAxes): return (1,) * (nAxes - len(shape)) + shape
-
-def cudamatHas(name):
-    if not hasattr(_cudamat, '_cudamat'): return False
-    return hasattr(_cudamat._cudamat, name)
 
 # ------------------------------------------------------------------------------- memory management
 
@@ -525,23 +520,6 @@ class garray(object):
                 self._base_shaped(self.ndim - len(bci)), other._base_shaped(self.ndim - len(bci)),
                 self._new_cm(self.ndim - len(bci))))
         # remaining case: broadcasting neither just the first dims nor just the last dims. this can be done very intelligently, but for now I won't bother
-        if operatorName == 'multiply' and len(bci) == 1 and cudamatHas(
-                'multiplyBcAxis1'):  # special case: using optimized multiplyBcAxis1 (my cuda code)
-            ret = empty(self.shape)
-            axisI = bci[0]
-            axis0len = _prodT(self.shape[:bci[0]])
-            axis1len = self.shape[bci[0]]
-            axis2len = _prodT(self.shape[bci[0] + 1:])
-            _cudamat._cudamat.multiplyBcAxis1.restype = ctypes.c_int
-            assert 0 == _cudamat._cudamat.multiplyBcAxis1(_ctInt(__builtin__.min(512, axis2len)),
-                                                          self._base.p_mat,
-                                                          other._base.p_mat,
-                                                          ret._base.p_mat,
-                                                          _ctInt(axis0len),
-                                                          _ctInt(axis1len),
-                                                          _ctInt(axis2len),
-            )
-            return ret
         return self._broadcastable_op(other._tile_to_broadcast(self.shape, bci[:1]), operatorName)
 
     def _elementwise_unary(self, handler):
@@ -721,17 +699,6 @@ class garray(object):
             reshape(self.shape[:axes[i]] + (_prodT(self.shape[axes[i]:axes[i] + 2]),) + self.shape[axes[i] + 2:]).
             transpose((originalAxisI - (originalAxisI > axes[i])) for originalAxisI in _deleteT2(axes, i + 1)).
             reshape(self.shape[axisI] for axisI in axes))
-        if self.ndim == 3 and hasattr(_cudamat, '_cudamat') and cudamatHas('transpose3') and self.size != 0:
-            reorderingI = {(0, 2, 1): 0, (1, 0, 2): 1, (2, 1, 0): 2}[axes]
-            ret = empty(tuple(self.shape[axisI] for axisI in axes))
-            gridX, gridY = (self.size + 511) // 512, 1
-            while gridX > 65535: gridY *= 2; gridX = (gridX + 1) // 2;
-            _cudamat._cudamat.transpose3.restype = ctypes.c_int
-            assert 0 == _cudamat._cudamat.transpose3(_ctInt(gridX), _ctInt(gridY), self._base.p_mat, ret._base.p_mat,
-                                                     _ctInt(self.shape[0]), _ctInt(self.shape[1]),
-                                                     _ctInt(self.shape[2]), _ctInt(reorderingI))
-            return ret
-
         def shiftAxesRight(shiftN):
             return self.transpose_simple(-shiftN).transpose((axisI + shiftN) % self.ndim for axisI in axes)
 
