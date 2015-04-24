@@ -383,24 +383,28 @@ def tensordot(a, b, axes=2):
 
 # ------------------------------------------------------------------------------- reductors
 
-def _reductor__base(x, axis, gpuOp, npOp):
+def _reductor__base(x, axis, keepdims, op):
     """ On numpy arrays this returns a numpy array; on garrays and other array-likes this returns a garray. """
-    if type(x) == numpy.ndarray: return npOp(x, axis)
-    if not isinstance(x, garray): x = garray(x)
-    if gpuOp == None:
-        return garray(npOp(x.as_numpy_array(), axis))
-    else:
-        return gpuOp(x, axis)
+    ans = op(x, axis)
+    if keepdims:
+        if axis is None:
+            print "ans is", ans, type(ans)
+            ans = numpy.reshape(ans, (1,) * x.ndim)
+        else:
+            shape = list(x.shape)
+            shape[axis] = 1
+            if is_garray(ans):
+                ans = ans.reshape(shape)
+            else:
+                ans = numpy.reshape(ans, shape)
+    return ans
 
-def all(x, axis=None):  return _reductor__base(x, axis, garray.all, numpy.all)
-def any(x, axis=None):  return _reductor__base(x, axis, garray.any, numpy.any)
-def sum(x, axis=None):  return _reductor__base(x, axis, garray.sum, numpy.sum)
-def mean(x, axis=None): return _reductor__base(x, axis, garray.mean, numpy.mean)
-def max(x, axis=None):  return _reductor__base(x, axis, garray.max, numpy.max)
-def min(x, axis=None):  return _reductor__base(x, axis, garray.min, numpy.min)
-def prod(x, axis=None): return _reductor__base(x, axis, None, numpy.prod)
-def std(x, axis=None):  return _reductor__base(x, axis, None, numpy.std)
-def var(x, axis=None):  return _reductor__base(x, axis, None, numpy.var)
+def all(x, axis=None, keepdims=False):  return _reductor__base(x, axis, keepdims, garray.all)
+def any(x, axis=None, keepdims=False):  return _reductor__base(x, axis, keepdims, garray.any)
+def sum(x, axis=None, keepdims=False):  return _reductor__base(x, axis, keepdims, garray.sum)
+def mean(x,axis=None, keepdims=False):  return _reductor__base(x, axis, keepdims, garray.mean)
+def max(x, axis=None, keepdims=False):  return _reductor__base(x, axis, keepdims, garray.max)
+def min(x, axis=None, keepdims=False):  return _reductor__base(x, axis, keepdims, garray.min)
 
 # ------------------------------------------------------------------------------- elementwise operations
 
@@ -428,7 +432,6 @@ def negative(x): return _elementwise__base(x, operator.neg, operator.neg)
 def sign(x):   return _elementwise__base(x, garray.sign, numpy.sign)
 def sqrt(x):   return _elementwise__base(x, garray.sqrt, numpy.sqrt)
 def tanh(x):   return _elementwise__base(x, garray.tanh, numpy.tanh)
-def log1p(x):  return _elementwise__base(x, garray.log_1_plus_exp, np.log1p)
 
 class gpu_float32(object):
     def __init__(self):
@@ -524,7 +527,7 @@ class garray(object):
         return self._new(handler(self._base_as_row(), self._new_cm()))
 
     def _reduction__base(self, operatorName, axis):
-        if axis == None: return self.ravel()._reduction__base(operatorName, 0).item()
+        if axis == None: return self.ravel()._reduction__base(operatorName, 0)
         if not type(axis) in _numberTypes: raise TypeError(
             'the value %s is not appropriate for the "axis" parameter.' % str(axis))
         if axis < -self.ndim or axis >= self.ndim: raise ValueError(
@@ -539,7 +542,11 @@ class garray(object):
             else:
                 assert False
         if axis == 0 and operatorName == 'max':  # max over rows is not yet supported in cudamat
-            return self.reshape_2d(1).T.max(1).reshape(self.shape[1:])
+            ans = self.reshape_2d(1).T.max(1).reshape(self.shape[1:])
+            if ans.size == 1:
+                return ans.as_numpy_array()[()]
+            else:
+                return ans
         if axis == 0 and self.ndim == 1 and self.size > 5000 and operatorName == 'sum':  # optimization. apparently, cudamat is not maximally efficient.
             n = int(numpy.sqrt(self.size - 1))
             return self[:n * n].reshape((n, n))._reduction__base(operatorName, 0)._reduction__base(operatorName, 0) + self[n * n:]._reduction__base(
@@ -548,15 +555,17 @@ class garray(object):
             chunkSize = 1024 * 256  # sum over longer dimensions fails in cudamat
             nChunks = (self.shape[axis] + chunkSize - 1) // chunkSize
             if nChunks > 1:
-                return reduceAdd(self[(slice(None),) * axis + (slice(chunkI * chunkSize,
-                                                                     __builtin__.min(self.shape[axis], (
-                                                                     chunkI + 1) * chunkSize)),)]._reduction__base(
-                    operatorName, axis)
+                return reduceAdd(self[(slice(None),) * axis + (slice(chunkI * chunkSize, __builtin__.min(self.shape[axis], (chunkI + 1) * chunkSize)),)]._reduction__base(operatorName, axis)
                                  for chunkI in range(nChunks))
         if operatorName == 'max' and self.isnan().any2():  # cudamat bug workaround
             return garray(self.asarray().max(axis))
         operatorInCm = {'sum': _cmType.sum, 'max': _cmType.max}[operatorName]
-        if axis == 0: return garray(operatorInCm(self._base_shaped(1), 1, _new_cm(_prodT(self.shape[1:]))), self.shape[1:], None)
+        if axis == 0:
+            ans = garray(operatorInCm(self._base_shaped(1), 1, _new_cm(_prodT(self.shape[1:]))), self.shape[1:], None)
+            if ans.size == 1:
+                return ans.as_numpy_array()[()]
+            else:
+                return ans
         if axis == self.ndim - 1:
             if self.ndim != 2: return self.reshape_2d(-1)._reduction__base(operatorName, 1).reshape(self.shape[:-1])
             if self.ndim == 2:

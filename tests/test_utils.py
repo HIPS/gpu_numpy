@@ -29,14 +29,18 @@ def check_np_equivalence(fun_name, args, kwargs, array_argnums):
             if isinstance(ans_test, gnp.garray):
                 ans_test = gnp.array(ans_test, dtype=gnp.float64)
 
-            assert type(ans_truth) is type(ans_test), \
-                "Type mismatch! \nTruth:  {0}, \nResult: {1}".format(type(ans_truth), type(ans_test))
+            assert equivalent_types(ans_truth, ans_test), \
+                "Type mismatch! \nTruth:  {0}, \nResult: {1}\nTypes: {2}, {3}".format(
+                    ans_truth, ans_test, type(ans_truth), type(ans_test))
             assert onp.allclose(ans_truth, ans_test, atol=1e-5), \
                 "Value mismatch.\nTruth:  {0}, \nResult: {1}".format(ans_truth, ans_test)
         except:
             print "Test failed, dtypes were {0} args were {1}, kwargs were {2}".format(
                 dtypes, args, kwargs)
             raise
+
+def equivalent_types(truth, test):
+    return type(truth) is type(test)    
 
 def getfun(module, fun_name):
     if isinstance(fun_name, str):

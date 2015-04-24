@@ -17,7 +17,7 @@ def merge_numpy_gnumpy(np_fun, gnp_fun):
 
 gnumpy_wrapped_funs = ['dot', 'outer', 'concatenate', 'where', 'nonzero',
                        'eye', 'tensordot', 'all', 'any', 'sum', 'mean', 'max',
-                       'min', 'abs', 'exp', 'isinf', 'isnan', 'log', 'log1p',
+                       'min', 'abs', 'exp', 'isinf', 'isnan', 'log',
                        'negative', 'sign', 'sqrt', 'tanh']
 
 gdict = globals()
